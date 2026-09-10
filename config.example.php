@@ -44,6 +44,12 @@ return [
     // Token para acionar os alertas por URL (/api/cron?token=...), se não usar o Cron em PHP
     'cron_token' => '',
 
+    // Pasta das capas enviadas. Vazio = controladoria-arquivos, ao lado da pasta public_html
+    'storage_path' => '',
+
+    // true só se o Evolution estiver de propósito numa rede interna (por padrão, endereços internos são bloqueados)
+    'allow_private_hosts' => false,
+
     // Opcional: o Evolution e o Gemini também podem ser cadastrados pelo painel (Integrações)
     'evolution' => ['url' => '', 'instance' => '', 'api_key' => ''],
     'gemini' => ['api_key' => '', 'model' => 'gemini-2.5-flash'],

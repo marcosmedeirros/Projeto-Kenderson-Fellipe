@@ -5,22 +5,35 @@ defined('CONTROLADORIA') || exit;
 const SESSION_MAX_AGE = 7 * 86400;   // limite absoluto
 const SESSION_IDLE_TIMEOUT = 12 * 3600; // encerra após 12 h sem uso
 const SESSION_PENDING_MAX_AGE = 600;  // tempo para digitar o código de 2 etapas
+const TEMP_PASSWORD_TTL = 72 * 3600;  // validade da senha temporária criada pelo administrador
+const AUDIT_RETENTION_DAYS = 365;
+
+// Janela de 15 minutos. O limite por e-mail + IP barra quem tenta adivinhar a senha;
+// os limites maiores, só por IP ou só por e-mail, pegam ataques espalhados sem deixar
+// um desconhecido travar a conta de alguém com poucas tentativas.
 const LOGIN_WINDOW_SECONDS = 900;
-const LOGIN_MAX_FAILURES_EMAIL = 5;
+const LOGIN_MAX_FAILURES_PAIR = 5;
 const LOGIN_MAX_FAILURES_IP = 30;
+const LOGIN_MAX_FAILURES_EMAIL = 50;
+const SENSITIVE_MAX_FAILURES = 5;
+
+// Hashes de uma senha aleatória descartada, com os mesmos parâmetros das senhas reais.
+const DUMMY_ARGON2_HASH = '$argon2id$v=19$m=19456,t=2,p=1$VGJidjVkNFhRd1FEODVnZA$JuGGTA26XKllSWTcN4OjMGpYKcfWTaPu0z+ew/4F2Mk';
+const DUMMY_BCRYPT_HASH = '$2y$12$vmL5qYU/S3bKjw1a/9RNtO8dswbbU4b.3N3Y8.kth/ZhNSYKDtkhG';
 
 /* ---------------- Perfis e permissões ---------------- */
 
 const ROLE_LABELS = ['admin' => 'Administrador', 'editor' => 'Editor', 'visualizador' => 'Visualizador'];
 
 const ROLE_DESCRIPTIONS = [
-    'admin' => 'Acesso total: integrações, usuários e auditoria.',
-    'editor' => 'Opera o canal: capas, ideias, bot e alertas.',
+    'admin' => 'Acesso total: excluir dados, integrações, usuários e auditoria.',
+    'editor' => 'Cadastra e edita vídeos, capas e ideias; opera o bot e os alertas.',
     'visualizador' => 'Só consulta os dados do canal.',
 ];
 
 const PERMISSIONS = [
     'operar' => ['admin', 'editor'],
+    'excluir' => ['admin'],
     'automacoes' => ['admin', 'editor'],
     'integracoes' => ['admin'],
     'usuarios' => ['admin'],
@@ -34,12 +47,23 @@ function can(string $role, string $permission): bool
 
 /* ---------------- Senhas ---------------- */
 
+const ARGON2_OPTIONS = ['memory_cost' => 19456, 'time_cost' => 2, 'threads' => 1];
+const BCRYPT_OPTIONS = ['cost' => 12];
+
 function hash_password(string $password): string
 {
     if (defined('PASSWORD_ARGON2ID')) {
-        return password_hash($password, PASSWORD_ARGON2ID, ['memory_cost' => 19456, 'time_cost' => 2, 'threads' => 1]);
+        return password_hash($password, PASSWORD_ARGON2ID, ARGON2_OPTIONS);
     }
-    return password_hash($password, PASSWORD_BCRYPT, ['cost' => 12]);
+    return password_hash($password, PASSWORD_BCRYPT, BCRYPT_OPTIONS);
+}
+
+/** true quando o hash foi feito com um algoritmo ou parâmetros diferentes dos atuais. */
+function password_needs_upgrade(string $hash): bool
+{
+    return defined('PASSWORD_ARGON2ID')
+        ? password_needs_rehash($hash, PASSWORD_ARGON2ID, ARGON2_OPTIONS)
+        : password_needs_rehash($hash, PASSWORD_BCRYPT, BCRYPT_OPTIONS);
 }
 
 function verify_password(string $hash, string $password): bool
@@ -50,9 +74,7 @@ function verify_password(string $hash, string $password): bool
 /** Gasta o mesmo tempo de uma verificação real, para não revelar se o e-mail existe. */
 function dummy_verify(string $password): void
 {
-    static $hash = null;
-    $hash ??= hash_password('senha-ficticia-para-tempo-constante');
-    password_verify($password, $hash);
+    password_verify($password, defined('PASSWORD_ARGON2ID') ? DUMMY_ARGON2_HASH : DUMMY_BCRYPT_HASH);
 }
 
 function validate_new_password(string $password): ?string
@@ -80,6 +102,13 @@ function generate_temporary_password(): string
         $body .= $alphabet[random_int(0, strlen($alphabet) - 1)];
     }
     return substr($body, 0, 7) . '-' . substr($body, 7) . random_int(0, 9);
+}
+
+function temporary_password_expired(array $user): bool
+{
+    return !empty($user['must_change_password'])
+        && !empty($user['temp_password_expires_at'])
+        && from_db($user['temp_password_expires_at'])->getTimestamp() <= time();
 }
 
 /* ---------------- Sessões (guardadas no banco) ---------------- */
@@ -121,7 +150,7 @@ function current_session(bool $refresh = false): ?array
     $id = hash('sha256', $token);
     $row = db_one(
         'SELECT s.id, s.two_factor_pending, s.two_factor_attempts, s.last_seen_at, s.expires_at,
-                u.id AS user_id, u.name, u.email, u.role, u.active, u.totp_enabled, u.must_change_password
+                u.id AS user_id, u.name, u.email, u.role, u.active, u.totp_enabled, u.must_change_password, u.temp_password_expires_at
            FROM sessions s JOIN users u ON u.id = s.user_id
           WHERE s.id = ? LIMIT 1',
         [$id]
@@ -135,7 +164,8 @@ function current_session(bool $refresh = false): ?array
     $lastSeen = from_db($row['last_seen_at'])->getTimestamp();
     $expired = from_db($row['expires_at'])->getTimestamp() <= $now
         || (!$pending && $now - $lastSeen > SESSION_IDLE_TIMEOUT)
-        || !$row['active'];
+        || !$row['active']
+        || temporary_password_expired($row);
     if ($expired) {
         db_exec('DELETE FROM sessions WHERE id = ?', [$id]);
         return null;
@@ -222,7 +252,7 @@ function flash(string $type, string $message, ?string $secret = null): void
     }
     $items = json_decode((string) db_value('SELECT flash FROM sessions WHERE id = ?', [$session['id']]), true) ?: [];
     $items[] = ['type' => $type, 'message' => $message, 'secret' => $secret !== null ? encrypt_secret($secret) : null];
-    db_exec('UPDATE sessions SET flash = ? WHERE id = ?', [json_encode($items, JSON_UNESCAPED_UNICODE), $session['id']]);
+    db_exec('UPDATE sessions SET flash = ? WHERE id = ?', [json_encode(array_slice($items, -10), JSON_UNESCAPED_UNICODE), $session['id']]);
 }
 
 function take_flash(): array
@@ -245,29 +275,88 @@ function take_flash(): array
 
 /* ---------------- Proteção contra força bruta ---------------- */
 
-function is_login_blocked(string $email, ?string $ip): bool
+function login_window_start(): string
 {
-    $since = to_db(utc_now()->modify('-' . LOGIN_WINDOW_SECONDS . ' seconds'));
-    $byEmail = (int) db_value('SELECT COUNT(*) FROM login_attempts WHERE email = ? AND success = 0 AND created_at > ?', [$email, $since]);
-    if ($byEmail >= LOGIN_MAX_FAILURES_EMAIL) {
-        return true;
-    }
-    if ($ip === null) {
-        return false;
-    }
-    $byIp = (int) db_value('SELECT COUNT(*) FROM login_attempts WHERE ip = ? AND success = 0 AND created_at > ?', [$ip, $since]);
-    return $byIp >= LOGIN_MAX_FAILURES_IP;
+    return to_db(utc_now()->modify('-' . LOGIN_WINDOW_SECONDS . ' seconds'));
 }
 
-function record_login_attempt(string $email, ?string $ip, bool $success): void
+function is_login_blocked(string $email, ?string $ip): bool
 {
-    db_insert('login_attempts', ['email' => $email, 'ip' => $ip, 'success' => $success ? 1 : 0, 'created_at' => to_db(utc_now())]);
-    if ($success) {
-        db_exec('DELETE FROM login_attempts WHERE email = ? AND success = 0', [$email]);
+    $since = login_window_start();
+    $pair = (int) db_value('SELECT COUNT(*) FROM login_attempts WHERE email = ? AND ip <=> ? AND success = 0 AND created_at > ?', [$email, $ip, $since]);
+    if ($pair >= LOGIN_MAX_FAILURES_PAIR) {
+        return true;
     }
+    if ($ip !== null) {
+        $byIp = (int) db_value('SELECT COUNT(*) FROM login_attempts WHERE ip = ? AND success = 0 AND created_at > ?', [$ip, $since]);
+        if ($byIp >= LOGIN_MAX_FAILURES_IP) {
+            return true;
+        }
+    }
+    $byEmail = (int) db_value('SELECT COUNT(*) FROM login_attempts WHERE email = ? AND success = 0 AND created_at > ?', [$email, $since]);
+    return $byEmail >= LOGIN_MAX_FAILURES_EMAIL;
 }
+
+/**
+ * Registra uma tentativa. Numa falha, devolve true se ela acabou de bloquear o login
+ * (para a auditoria registrar só a mudança, e não cada tentativa).
+ */
+function record_login_attempt(string $email, ?string $ip, bool $success): bool
+{
+    if ($success) {
+        // Só limpa as falhas deste aparelho: um acerto não zera um ataque vindo de outros IPs.
+        db_exec('DELETE FROM login_attempts WHERE email = ? AND ip <=> ? AND success = 0', [$email, $ip]);
+        return false;
+    }
+    db_insert('login_attempts', ['email' => $email, 'ip' => $ip, 'success' => 0, 'created_at' => to_db(utc_now())]);
+    return is_login_blocked($email, $ip);
+}
+
+/* Confirmações com senha ou código dentro do painel (trocar senha, desligar 2 etapas). */
+
+function sensitive_attempt_key(array $user): string
+{
+    return 'acao:' . $user['id'];
+}
+
+function sensitive_action_blocked(array $user): bool
+{
+    return (int) db_value(
+        'SELECT COUNT(*) FROM login_attempts WHERE email = ? AND success = 0 AND created_at > ?',
+        [sensitive_attempt_key($user), login_window_start()]
+    ) >= SENSITIVE_MAX_FAILURES;
+}
+
+/** Conta um erro. No limite, encerra todas as sessões do usuário: pode ser alguém com o aparelho de outra pessoa. */
+function register_sensitive_failure(array $user): void
+{
+    db_insert('login_attempts', ['email' => sensitive_attempt_key($user), 'ip' => client_ip(), 'success' => 0, 'created_at' => to_db(utc_now())]);
+    if (!sensitive_action_blocked($user)) {
+        return;
+    }
+    revoke_user_sessions($user['id']);
+    log_audit($user['id'], 'conta.bloqueio_sensivel');
+    set_app_cookie('sessao', '', time() - 3600);
+    current_session(true);
+    redirect('/login');
+}
+
+/* ---------------- Limpeza (rodada pelo Cron uma vez por dia) ---------------- */
 
 function purge_old_login_attempts(): void
 {
     db_exec('DELETE FROM login_attempts WHERE created_at < ?', [to_db(utc_now()->modify('-1 day'))]);
+}
+
+function purge_expired_sessions(): void
+{
+    db_exec(
+        'DELETE FROM sessions WHERE expires_at < ? OR (two_factor_pending = 0 AND last_seen_at < ?)',
+        [to_db(utc_now()), to_db(utc_now()->modify('-' . SESSION_IDLE_TIMEOUT . ' seconds'))]
+    );
+}
+
+function purge_old_audit_logs(): void
+{
+    db_exec('DELETE FROM audit_logs WHERE created_at < ? LIMIT 5000', [to_db(utc_now()->modify('-' . AUDIT_RETENTION_DAYS . ' days'))]);
 }

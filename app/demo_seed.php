@@ -187,6 +187,8 @@ function seed_demo_if_empty(): bool
             ]);
         }
 
+        db_exec("UPDATE videos SET source = 'exemplo', created_at = COALESCE(created_at, NOW(3)), updated_at = COALESCE(updated_at, NOW(3)) WHERE id LIKE 'demo-%'");
+
         $pdo->commit();
     } catch (Throwable $error) {
         $pdo->rollBack();

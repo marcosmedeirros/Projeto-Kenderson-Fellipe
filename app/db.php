@@ -65,6 +65,13 @@ function db_insert(string $table, array $data): string
     return (string) db()->lastInsertId();
 }
 
+/** Uso interno: nomes de tabela e colunas nunca vêm do usuário. */
+function db_update(string $table, array $data, string $where, array $whereParams): int
+{
+    $set = implode(', ', array_map(static fn ($column) => "`$column` = ?", array_keys($data)));
+    return db_exec("UPDATE `$table` SET $set WHERE $where", array_merge(array_values($data), $whereParams));
+}
+
 function db_placeholders(array $values): string
 {
     return implode(', ', array_fill(0, max(1, count($values)), '?'));

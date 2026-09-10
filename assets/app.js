@@ -22,8 +22,13 @@
     button.addEventListener('click', function () { setSidebar(false); });
   });
   if (overlay) overlay.addEventListener('click', function () { setSidebar(false); });
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape') setSidebar(false);
+  });
 
   /* ---------- Confirmação e "Salvando…" nos formulários ---------- */
+  var pendingButtons = [];
+
   document.addEventListener('submit', function (event) {
     var form = event.target;
     if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) {
@@ -34,10 +39,21 @@
     if (button && button.dataset.pending) {
       // Depois do envio começar, para não perder o valor do botão.
       setTimeout(function () {
+        pendingButtons.push({ button: button, nodes: Array.prototype.slice.call(button.childNodes) });
         button.disabled = true;
         button.textContent = button.dataset.pending;
       }, 0);
     }
+  });
+
+  // Ao voltar pelo histórico o navegador reabre a página com o botão travado em "Salvando…".
+  window.addEventListener('pageshow', function () {
+    pendingButtons.forEach(function (item) {
+      item.button.textContent = '';
+      item.nodes.forEach(function (node) { item.button.appendChild(node); });
+      item.button.disabled = false;
+    });
+    pendingButtons = [];
   });
 
   /* ---------- Copiar senha temporária ---------- */
@@ -56,7 +72,14 @@
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': csrf },
       body: new URLSearchParams(data || {})
-    }).then(function (response) { return response.json(); });
+    }).then(function (response) {
+      // Sessão vencida vira redirecionamento para o login (HTML), não JSON.
+      var type = response.headers.get('content-type') || '';
+      if (type.indexOf('application/json') === -1) {
+        throw new Error('Sua sessão expirou ou a página ficou aberta por muito tempo. Recarregue a página.');
+      }
+      return response.json();
+    });
   }
 
   /* ---------- Simulador do bot ---------- */
@@ -92,8 +115,8 @@
       row.className = from === 'user' ? 'flex justify-end' : 'flex justify-start';
       var box = document.createElement('div');
       box.className = from === 'user'
-        ? 'max-w-[80%] rounded-lg rounded-tr-sm bg-[#134536] px-3 py-2 text-sm'
-        : 'max-w-[85%] rounded-lg rounded-tl-sm bg-panel-3 px-3 py-2 text-sm';
+        ? 'max-w-[85%] break-words rounded-lg rounded-tr-sm bg-[#134536] px-3 py-2 text-sm'
+        : 'max-w-[90%] break-words rounded-lg rounded-tl-sm bg-panel-3 px-3 py-2 text-sm';
       if (from === 'bot') {
         var name = document.createElement('p');
         name.className = 'mb-0.5 text-xs font-bold text-accent';
@@ -126,9 +149,9 @@
           typing.remove();
           bubble('bot', data.reply || data.error || 'Sem resposta.');
         })
-        .catch(function () {
+        .catch(function (problem) {
           typing.remove();
-          bubble('bot', 'Não foi possível falar com o painel. Recarregue a página.');
+          bubble('bot', problem && problem.message ? problem.message : 'Não foi possível falar com o painel. Recarregue a página.');
         })
         .then(function () { busy = false; });
     };
@@ -149,10 +172,11 @@
     var error = totp.querySelector('[data-totp-error]');
     var setup = totp.querySelector('[data-totp-setup]');
 
-    start.addEventListener('click', function () {
+    // reuse = depois de um código errado: mostra o mesmo QR que já foi lido no app.
+    var begin = function (reuse) {
       start.disabled = true;
       error.hidden = true;
-      post('/conta/2fa/iniciar')
+      post('/conta/2fa/iniciar', reuse ? { reusar: '1' } : {})
         .then(function (data) {
           if (!data.uri || typeof window.qrcode !== 'function') {
             throw new Error(data.error || 'Não foi possível iniciar a configuração.');
@@ -171,6 +195,9 @@
           error.hidden = false;
           start.disabled = false;
         });
-    });
+    };
+
+    start.addEventListener('click', function () { begin(false); });
+    if (totp.hasAttribute('data-totp-resume')) begin(true);
   }
 })();

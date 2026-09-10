@@ -16,7 +16,7 @@ DirectoryIndex index.php
 </IfModule>
 
 # Segunda barreira: arquivos que nunca devem ser baixados.
-<FilesMatch "^\.|\.(sql|md|json|lock|log|ini|sh|dist)$|^(config\.local\.php|config\.example\.php|dev-router\.php)$">
+<FilesMatch "^\.|\.(sql|md|json|lock|log|ini|sh|dist)$|^(config\.local\.php|config\.example\.php|dev-router\.php)$|^controladoria-config">
     Require all denied
 </FilesMatch>
 

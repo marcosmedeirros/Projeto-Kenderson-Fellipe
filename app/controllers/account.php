@@ -5,10 +5,13 @@ defined('CONTROLADORIA') || exit;
 function page_account(): void
 {
     $user = require_user();
+    $resumeTotp = query_string('2fa') === 'pendente' && !$user['totp_enabled']
+        && db_value('SELECT totp_secret FROM users WHERE id = ?', [$user['id']]) !== null;
     render_page('account', 'Minha conta', [
         'user' => $user,
         'sessions' => list_user_sessions($user['id']),
         'currentSessionId' => current_session()['id'],
+        'resumeTotp' => $resumeTotp,
         '_scripts' => ['vendor/qrcode.js'],
     ]);
 }
@@ -31,8 +34,17 @@ function action_totp_start(): void
     if ($user['totp_enabled']) {
         json_response(['error' => 'A verificação em 2 etapas já está ativa.'], 409);
     }
-    $secret = totp_generate_secret();
-    db_exec('UPDATE users SET totp_secret = ?, totp_last_step = NULL WHERE id = ?', [encrypt_secret($secret), $user['id']]);
+
+    // "reusar" mantém o mesmo segredo depois de um código errado: o que já foi lido no app continua valendo.
+    $secret = null;
+    if (post_string('reusar', 1) === '1') {
+        $stored = db_value('SELECT totp_secret FROM users WHERE id = ?', [$user['id']]);
+        $secret = $stored !== null ? decrypt_secret((string) $stored) : null;
+    }
+    if ($secret === null) {
+        $secret = totp_generate_secret();
+        db_exec('UPDATE users SET totp_secret = ?, totp_last_step = NULL WHERE id = ?', [encrypt_secret($secret), $user['id']]);
+    }
     json_response(['uri' => totp_uri($secret, $user['email']), 'secret' => trim(chunk_split($secret, 4, ' '))]);
 }
 
@@ -46,21 +58,35 @@ function action_totp_confirm(): void
     }
     $step = totp_verify(decrypt_secret((string) $secret), post_string('code', 10));
     if ($step === null) {
-        flash('erro', 'Código incorreto. Confira se o horário do celular está automático e comece de novo.');
-        redirect('/conta');
+        flash('erro', 'Código incorreto. Confira se o horário do celular está automático e digite o código que aparece agora.');
+        redirect('/conta?2fa=pendente');
     }
     db_exec('UPDATE users SET totp_enabled = 1, totp_last_step = ? WHERE id = ?', [$step, $user['id']]);
+    revoke_user_sessions($user['id'], current_session()['id']);
     log_audit($user['id'], '2fa.ativado');
-    flash('ok', 'Verificação em 2 etapas ativada.');
+    flash('ok', 'Verificação em 2 etapas ativada. As sessões em outros aparelhos foram encerradas.');
     redirect('/conta');
 }
 
 function action_totp_disable(): void
 {
     $user = require_user();
-    $hash = (string) db_value('SELECT password_hash FROM users WHERE id = ?', [$user['id']]);
-    if (!verify_password($hash, post_raw('password'))) {
+    if (sensitive_action_blocked($user)) {
+        flash('erro', 'Muitas tentativas seguidas. Aguarde 15 minutos e tente de novo.');
+        redirect('/conta');
+    }
+    $row = db_one('SELECT password_hash, totp_secret, totp_last_step FROM users WHERE id = ?', [$user['id']]);
+    if ($row === null || !verify_password($row['password_hash'], post_raw('password'))) {
+        register_sensitive_failure($user);
         flash('erro', 'Senha incorreta.');
+        redirect('/conta');
+    }
+    $step = $row['totp_secret'] !== null
+        ? totp_verify(decrypt_secret($row['totp_secret']), post_string('code', 10), $row['totp_last_step'] !== null ? (int) $row['totp_last_step'] : null)
+        : null;
+    if ($step === null) {
+        register_sensitive_failure($user);
+        flash('erro', 'Código de verificação incorreto. Para desativar, confirme com o código do app autenticador.');
         redirect('/conta');
     }
     db_exec('UPDATE users SET totp_enabled = 0, totp_secret = NULL, totp_last_step = NULL WHERE id = ?', [$user['id']]);

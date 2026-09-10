@@ -40,16 +40,20 @@
     <?= card_header('Verificação em 2 etapas', 'Além da senha, pede um código do app autenticador no celular', 'shield-check', $user['totp_enabled'] ? badge('Ativa', 'ok') : badge('Desativada', 'warn')) ?>
     <div class="p-5">
         <?php if ($user['totp_enabled']): ?>
-            <?= form_open('/conta/2fa/desativar', 'flex max-w-lg flex-wrap items-end gap-3') ?>
-                <div class="min-w-[220px] flex-1">
+            <?= form_open('/conta/2fa/desativar', 'flex max-w-2xl flex-wrap items-end gap-3') ?>
+                <div class="min-w-[200px] flex-1">
                     <label for="disable-password" class="label">Para desativar, confirme sua senha</label>
                     <input id="disable-password" name="password" type="password" autocomplete="current-password" required class="input">
+                </div>
+                <div class="w-40">
+                    <label for="disable-code" class="label">Código do app</label>
+                    <input id="disable-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required class="input font-mono tracking-[0.2em]" placeholder="000000">
                 </div>
                 <?= submit_button('Desativar', 'btn btn-danger', 'Desativando…') ?>
             </form>
         <?php else: ?>
             <p class="mb-4 max-w-2xl text-sm text-muted">Recomendado para todos, principalmente administradores. Mesmo que alguém descubra sua senha, não consegue entrar sem o seu celular.</p>
-            <div data-totp>
+            <div data-totp<?= $resumeTotp ? ' data-totp-resume' : '' ?>>
                 <button type="button" class="btn btn-primary" data-totp-start><?= icon('shield-check') ?><span>Ativar verificação em 2 etapas</span></button>
                 <p class="mt-2 text-sm text-danger" data-totp-error hidden></p>
                 <div class="grid gap-6 sm:grid-cols-[auto_1fr]" data-totp-setup hidden>

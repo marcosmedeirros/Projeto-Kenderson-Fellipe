@@ -9,7 +9,7 @@ error_reporting(E_ALL);
 
 foreach ([
     'config', 'helpers', 'format', 'security', 'db', 'audit', 'totp', 'auth', 'settings',
-    'integrations', 'channel', 'bot', 'ideas', 'automations', 'demo_seed', 'migrate',
+    'integrations', 'channel', 'videos', 'storage', 'bot', 'ideas', 'automations', 'demo_seed', 'migrate',
     'icons', 'components', 'routes',
 ] as $file) {
     require __DIR__ . '/' . $file . '.php';

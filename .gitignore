@@ -4,6 +4,9 @@ controladoria-config*.php
 .env
 .env.*
 
+# Capas enviadas (quando a hospedagem não permite guardar fora do public_html)
+/storage/
+
 # Ferramentas de desenvolvimento
 /node_modules/
 /deploy/

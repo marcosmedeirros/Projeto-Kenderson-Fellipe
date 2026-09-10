@@ -12,11 +12,20 @@
                             <span class="font-semibold"><?= e($person['name']) ?></span>
                             <?= $self ? badge('Você', 'info') : '' ?>
                             <?= !$person['active'] ? badge('Desativado', 'danger') : '' ?>
-                            <?= $person['must_change_password'] && $person['active'] ? badge('Aguardando 1º acesso', 'warn') : '' ?>
+                            <?php if ($person['must_change_password'] && $person['active']): ?>
+                                <?= temporary_password_expired($person) ? badge('Senha temporária vencida', 'danger') : badge('Aguardando 1º acesso', 'warn') ?>
+                            <?php endif; ?>
                             <?= $person['totp_enabled'] ? badge('2 etapas', 'ok', '', 'shield-check') : badge('Sem 2 etapas') ?>
                         </div>
                         <p class="mt-0.5 truncate text-sm text-muted"><?= e($person['email']) ?></p>
-                        <p class="mt-0.5 text-xs text-dim"><?= e($person['last_login_at'] ? 'Último acesso ' . fmt_ago(from_db($person['last_login_at'])) : 'Nunca acessou') ?></p>
+                        <p class="mt-0.5 text-xs text-dim">
+                            <?= e($person['last_login_at'] ? 'Último acesso ' . fmt_ago(from_db($person['last_login_at'])) : 'Nunca acessou') ?>
+                            <?php if ($person['must_change_password'] && $person['temp_password_expires_at'] && !temporary_password_expired($person)): ?>
+                                <?= e(' · senha temporária vale até ' . fmt_datetime(from_db($person['temp_password_expires_at']))) ?>
+                            <?php elseif (temporary_password_expired($person)): ?>
+                                <?= e(' · use "Redefinir senha" para gerar uma nova') ?>
+                            <?php endif; ?>
+                        </p>
                     </div>
 
                     <?php if ($self): ?>

@@ -133,6 +133,31 @@ function flash_messages(array $items): string
     return $html;
 }
 
+/** Miniatura da capa escolhida do vídeo, ou um espaço reservado quando não há capa. */
+function video_thumb_html(array $video, string $class = 'w-20'): string
+{
+    if (!empty($video['thumbnail_id'])) {
+        return '<img src="/capas/arquivo?id=' . (int) $video['thumbnail_id'] . '" alt="" loading="lazy" class="'
+            . e(cn('aspect-video shrink-0 rounded-md bg-panel-2 object-cover', $class)) . '">';
+    }
+    $missing = ($video['thumbnail_status'] ?? '') === 'pendente';
+    return '<span class="' . e(cn('grid aspect-video shrink-0 place-items-center rounded-md border border-dashed', $missing ? 'border-warn/40 text-warn' : 'border-line-2 text-dim', $class))
+        . '" title="' . ($missing ? 'Sem capa' : 'Sem imagem cadastrada') . '">' . icon($missing ? 'image-off' : 'image', 'size-4') . '</span>';
+}
+
+function capas_tabs(string $active): string
+{
+    $tabs = ['pendentes' => ['/capas', 'Pendentes', 'image-off'], 'biblioteca' => ['/capas/biblioteca', 'Biblioteca', 'image']];
+    $html = '<nav class="mb-6 flex gap-1 border-b border-line" aria-label="Seções de capas">';
+    foreach ($tabs as $key => [$href, $label, $iconName]) {
+        $current = $key === $active;
+        $html .= '<a href="' . $href . '" class="-mb-px flex items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-semibold transition-colors '
+            . ($current ? 'border-accent text-ink' : 'border-transparent text-muted hover:text-ink') . '"' . ($current ? ' aria-current="page"' : '') . '>'
+            . icon($iconName, 'size-4') . $label . '</a>';
+    }
+    return $html . '</nav>';
+}
+
 /* ---------------- Gráficos ---------------- */
 
 /** Gráfico de área. Rótulos em HTML para não distorcer com o SVG esticado. */

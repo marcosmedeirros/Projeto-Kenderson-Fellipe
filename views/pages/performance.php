@@ -9,7 +9,7 @@ $multiplier = (float) $alerts['viralMultiplicador'];
 
 $monthNav = '<div class="flex items-center gap-1 rounded-lg border border-line bg-panel p-1">'
     . '<a href="/desempenho?mes=' . e(shift_month($month, -1)) . '" class="btn btn-ghost btn-sm px-2" aria-label="Mês anterior">' . icon('chevron-left') . '</a>'
-    . '<span class="min-w-[150px] text-center text-sm font-semibold">' . e(month_label($month)) . '</span>'
+    . '<span class="min-w-[128px] text-center sm:min-w-[150px] text-sm font-semibold">' . e(month_label($month)) . '</span>'
     . ($month < $current
         ? '<a href="/desempenho?mes=' . e(shift_month($month, 1)) . '" class="btn btn-ghost btn-sm px-2" aria-label="Próximo mês">' . icon('chevron-right') . '</a>'
         : '<span class="btn btn-sm px-2 text-dim opacity-40">' . icon('chevron-right') . '</span>')
@@ -63,11 +63,22 @@ $monthNav = '<div class="flex items-center gap-1 rounded-lg border border-line b
 </div>
 
 <section class="card mt-6">
-    <?= card_header('Vídeos em alta', e('Views nos 7 primeiros dias acima de ' . fmt_decimal($multiplier) . 'x a mediana do canal (últimos 45 dias)'), 'flame') ?>
+    <?= card_header('Vídeos em alta', e('Views nos 7 primeiros dias acima de ' . fmt_decimal_trim($multiplier) . 'x a mediana do canal (últimos 45 dias)'), 'flame') ?>
     <?php if ($virals['recent']): ?>
-        <div class="overflow-x-auto">
-            <table class="table-base min-w-[680px]">
-                <thead><tr><th>Vídeo</th><th>Publicado</th><th class="text-right">Views em 7 dias</th><th class="text-right">Total</th><th class="text-right">vs média</th></tr></thead>
+        <ul class="divide-y divide-line md:hidden">
+            <?php foreach (array_slice($virals['recent'], 0, 12) as $video): ?>
+                <li class="flex items-center gap-3 px-4 py-3">
+                    <div class="min-w-0 flex-1">
+                        <p class="text-sm leading-snug font-semibold"><?= e($video['title']) ?><?= $video['is_short'] ? ' ' . badge('Short', 'info', 'ml-1 align-middle') : '' ?></p>
+                        <p class="mt-0.5 text-xs text-muted"><?= e(($video['published_at'] ? fmt_date($video['published_at']) . ' · ' : '') . fmt_compact($video['views_7d']) . ' em 7 dias · ' . fmt_compact($video['views']) . ' no total') ?></p>
+                    </div>
+                    <?= badge(fmt_ratio($video['ratio']), $video['ratio'] >= $multiplier ? 'warn' : ($video['ratio'] >= 1 ? 'ok' : 'neutral'), 'shrink-0', $video['ratio'] >= $multiplier ? 'flame' : null) ?>
+                </li>
+            <?php endforeach; ?>
+        </ul>
+        <div class="hidden overflow-x-auto md:block">
+            <table class="table-base">
+                <thead><tr><th>Vídeo</th><th>Publicado</th><th class="text-right">Views em 7 dias</th><th class="text-right">Total</th><th class="text-right">vs mediana</th></tr></thead>
                 <tbody>
                 <?php foreach (array_slice($virals['recent'], 0, 12) as $video): ?>
                     <tr>

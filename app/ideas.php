@@ -33,8 +33,8 @@ function ask_gemini_for_ideas(array $gemini, array $context): array
         . $lines($context['top'], static fn ($v) => "- {$v['title']} | {$v['views']} | " . round($v['avg_view_pct']) . '%') . "\n\n"
         . "Termos de busca do YouTube que trouxeram gente ao canal neste mês (termo, views):\n"
         . $lines($context['terms'], static fn ($t) => "- {$t['term']} | {$t['views']}") . "\n\n"
-        . "Termos que mais cresceram vs mês anterior:\n"
-        . $lines($context['rising'], static fn ($t) => "- {$t['term']} | {$t['views']} (antes {$t['before']})") . "\n\n"
+        . "Termos que mais cresceram vs mês anterior (média por dia):\n"
+        . $lines($context['rising'], static fn ($t) => "- {$t['term']} | {$t['views']} views" . ($t['growth'] !== null ? ' | ' . round($t['growth'] * 100) . '%' : ' | novo')) . "\n\n"
         . "Ideias já cadastradas (não repetir):\n"
         . $lines($context['existing'], static fn ($title) => "- $title");
 
@@ -46,20 +46,35 @@ function ask_gemini_for_ideas(array $gemini, array $context): array
             'contents' => [['role' => 'user', 'parts' => [['text' => $prompt]]]],
             'generationConfig' => ['responseMimeType' => 'application/json', 'temperature' => 0.8],
         ], JSON_UNESCAPED_UNICODE),
-        60
+        45
     );
-    if ($response['status'] !== 200) {
-        throw new RuntimeException('O Gemini respondeu com erro ' . $response['status'] . '. Confira a chave e o modelo em Integrações.');
+    if ($response['status'] === 0) {
+        throw new UserFacingException('Não foi possível conectar ao Gemini. Tente de novo em instantes.');
     }
-    $text = json_decode($response['body'], true)['candidates'][0]['content']['parts'][0]['text'] ?? '[]';
+    if ($response['status'] !== 200) {
+        throw new UserFacingException('O Gemini recusou o pedido (erro ' . $response['status'] . '). Confira a chave e o modelo em Integrações.');
+    }
+
+    $text = json_decode($response['body'], true)['candidates'][0]['content']['parts'][0]['text'] ?? '';
     $items = json_decode((string) $text, true);
+    if (is_array($items) && isset($items['titulo'])) {
+        $items = [$items];
+    } elseif (is_array($items) && !isset($items[0])) {
+        // Às vezes o modelo embrulha a lista num objeto: {"ideias": [...]}
+        foreach ($items as $value) {
+            if (is_array($value) && isset($value[0])) {
+                $items = $value;
+                break;
+            }
+        }
+    }
     if (!is_array($items)) {
-        throw new RuntimeException('O Gemini devolveu ideias num formato inesperado.');
+        throw new UserFacingException('O Gemini devolveu uma resposta num formato inesperado. Tente de novo.');
     }
     return array_values(array_filter($items, 'valid_idea_draft'));
 }
 
-/** Sem chave do Gemini: cria sugestões simples a partir dos termos de busca em alta. */
+/** Sem chave do Gemini: cria sugestões simples a partir dos termos de busca que estão crescendo. */
 function example_ideas(array $context): array
 {
     $existing = mb_strtolower(implode(' ', $context['existing']));
@@ -71,7 +86,7 @@ function example_ideas(array $context): array
     ];
     $drafts = [];
     foreach ($context['rising'] as $term) {
-        if (count($drafts) >= 4 || str_contains($existing, mb_strtolower($term['term']))) {
+        if (count($drafts) >= 4 || ($term['growth'] !== null && $term['growth'] <= 0) || str_contains($existing, mb_strtolower($term['term']))) {
             continue;
         }
         $index = count($drafts);
@@ -80,7 +95,7 @@ function example_ideas(array $context): array
             'titulo' => sprintf($templates[$index % count($templates)], $index === 1 ? $term['term'] : $label),
             'porque' => $term['growth'] === null
                 ? '"' . $term['term'] . '" apareceu pela primeira vez nas buscas e já trouxe ' . fmt_number($term['views']) . ' views este mês.'
-                : 'Buscas por "' . $term['term'] . '" cresceram ' . round($term['growth'] * 100) . '% e trouxeram ' . fmt_number($term['views']) . ' views este mês.',
+                : 'Buscas por "' . $term['term'] . '" cresceram ' . round($term['growth'] * 100) . '% (média por dia) e trouxeram ' . fmt_number($term['views']) . ' views este mês.',
             'fonte' => 'buscas',
             'pontuacao' => max(40, 90 - $index * 10),
         ];

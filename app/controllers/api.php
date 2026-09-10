@@ -67,11 +67,14 @@ function api_health(): void
     }
 }
 
-/** Alternativa ao Cron em PHP: https://SEU-DOMINIO/api/cron?token=TOKEN_DO_CRON */
+/**
+ * Alternativa ao Cron em PHP: POST https://SEU-DOMINIO/api/cron com o cabeçalho X-Cron-Token.
+ * O token não vai na URL para não ficar gravado em logs.
+ */
 function api_cron(): void
 {
     $expected = (string) config('cron_token', '');
-    $token = (string) ($_GET['token'] ?? ($_SERVER['HTTP_X_CRON_TOKEN'] ?? ''));
+    $token = (string) ($_SERVER['HTTP_X_CRON_TOKEN'] ?? '');
     if ($expected === '' || !hash_equals($expected, $token)) {
         json_response(['error' => 'Não autorizado.'], 401);
     }

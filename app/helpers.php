@@ -8,6 +8,11 @@ function e($value): string
     return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
+/** Erro com mensagem pensada para aparecer na tela. Qualquer outra exceção mostra só uma mensagem genérica. */
+class UserFacingException extends RuntimeException
+{
+}
+
 function request_method(): string
 {
     return strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
@@ -51,10 +56,12 @@ function redirect(string $path): void
     exit;
 }
 
+/** Volta para uma página interna. Recusa "//site", "/\site", esquemas e caracteres estranhos. */
 function back_to(string $fallback): void
 {
     $target = post_string('_voltar', 300);
-    redirect(str_starts_with($target, '/') && !str_starts_with($target, '//') ? $target : $fallback);
+    $safe = preg_match('#^/(?!/)[A-Za-z0-9/_?=&.%-]*$#', $target) === 1;
+    redirect($safe ? $target : $fallback);
 }
 
 function json_response(array $data, int $status = 200): void
@@ -66,15 +73,22 @@ function json_response(array $data, int $status = 200): void
     exit;
 }
 
+/**
+ * IP do visitante. Na Hostinger o tráfego passa pelo CDN, que ACRESCENTA o IP real no fim do
+ * X-Forwarded-For. Por isso vale o último IP público da lista: os primeiros podem ter sido
+ * inventados pelo próprio visitante para escapar do limite de tentativas.
+ */
 function client_ip(): ?string
 {
-    $forwarded = (string) ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? '');
-    $ip = trim(explode(',', $forwarded)[0]);
-    if ($ip === '') {
-        $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+    $public = static fn (string $ip): bool => (bool) filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE);
+    $forwarded = array_reverse(array_map('trim', explode(',', (string) ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? ''))));
+    foreach ($forwarded as $candidate) {
+        if ($public($candidate)) {
+            return substr($candidate, 0, 64);
+        }
     }
-    $ip = substr($ip, 0, 64);
-    return $ip !== '' ? $ip : null;
+    $remote = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+    return filter_var($remote, FILTER_VALIDATE_IP) ? substr($remote, 0, 64) : null;
 }
 
 function user_agent(): ?string

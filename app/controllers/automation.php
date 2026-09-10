@@ -21,12 +21,25 @@ function page_bot(): void
     ]);
 }
 
+const SIMULATOR_MESSAGES_PER_MINUTE = 20;
+
 function action_bot_simulate(): void
 {
     $session = current_session();
     if ($session === null || $session['two_factor_pending'] || $session['user']['must_change_password']) {
         json_response(['error' => 'Sessão expirada. Entre novamente.'], 401);
     }
+    if (!can($session['user']['role'], 'operar')) {
+        json_response(['error' => 'Seu perfil só consulta os dados. Peça a um editor para testar os comandos.'], 403);
+    }
+    $recent = (int) db_value(
+        "SELECT COUNT(*) FROM bot_messages WHERE origin = 'simulador' AND direction = 'entrada' AND created_at > ?",
+        [to_db(utc_now()->modify('-1 minute'))]
+    );
+    if ($recent >= SIMULATOR_MESSAGES_PER_MINUTE) {
+        json_response(['error' => 'Muitos testes seguidos. Espere um minuto e tente de novo.'], 429);
+    }
+
     $text = post_string('text', 200);
     if ($text === '') {
         json_response(['error' => 'Digite um comando, por exemplo /programados.'], 422);
@@ -71,6 +84,7 @@ function page_alerts(): void
         'stock' => $stock,
         'preview' => build_stock_alert($stock, (int) $alerts['estoqueMinimoDias']),
         'editable' => can($user['role'], 'automacoes'),
+        'evolutionOn' => evolution_config() !== null,
         'hasCronToken' => (string) config('cron_token', '') !== '',
     ]);
 }

@@ -25,10 +25,16 @@ function setting_defaults(): array
             'comandos' => array_fill_keys(BOT_COMMANDS, true),
         ],
         'automacoes' => [
-            'ultimoAlertaEstoque' => null,
-            'ultimoAlertaCapa' => null,
-            'ultimoResumoSemanal' => null,
-            'ultimoRelatorioMensal' => null,
+            'limpezaDia' => null,
+            'alertaEstoqueDia' => null,
+            'alertaEstoqueEnviadoEm' => null,
+            'alertaCapaDia' => null,
+            'alertaCapaEnviadoEm' => null,
+            'resumoSemanalSemana' => null,
+            'resumoSemanalEnviadoEm' => null,
+            'relatorioMensalMes' => null,
+            'relatorioMensalEnviadoEm' => null,
+            'tentativas' => [],
         ],
     ];
 }
@@ -50,9 +56,30 @@ function save_setting(string $key, array $value, ?string $userId = null): void
     );
 }
 
+/** Cache curto guardado no banco (a hospedagem compartilhada não tem memória compartilhada). */
+function cache_get(string $key)
+{
+    $raw = db_value('SELECT `value` FROM settings WHERE `key` = ?', ['cache:' . $key]);
+    $data = $raw !== null ? json_decode((string) $raw, true) : null;
+    return is_array($data) && (int) ($data['expira'] ?? 0) > time() ? ($data['valor'] ?? null) : null;
+}
+
+function cache_put(string $key, $value, int $seconds): void
+{
+    db_run(
+        'INSERT INTO settings (`key`, `value`, updated_by, updated_at) VALUES (?, ?, NULL, ?)
+         ON DUPLICATE KEY UPDATE `value` = VALUES(`value`), updated_at = VALUES(updated_at)',
+        ['cache:' . $key, json_encode(['valor' => $value, 'expira' => time() + $seconds], JSON_UNESCAPED_UNICODE), to_db(utc_now())]
+    );
+}
+
+/** HH:MM até 23:55: o Cron roda a cada 5 minutos e depois disso o envio já cairia no dia seguinte. */
 function valid_hour(string $value): bool
 {
-    return (bool) preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $value);
+    if (!preg_match('/^([01]\d|2[0-3]):([0-5]\d)$/', $value, $match)) {
+        return false;
+    }
+    return (int) $match[1] * 60 + (int) $match[2] <= 23 * 60 + 55;
 }
 
 /** @return array{0: ?array, 1: ?string} dados validados ou mensagem de erro */
@@ -68,7 +95,7 @@ function validate_alert_settings(array $input): array
         'resumoSemanalHora' => (string) ($input['resumoSemanalHora'] ?? ''),
         'relatorioMensalAtivo' => ($input['relatorioMensalAtivo'] ?? '') === 'on',
         'relatorioMensalHora' => (string) ($input['relatorioMensalHora'] ?? ''),
-        'viralMultiplicador' => (float) str_replace(',', '.', (string) ($input['viralMultiplicador'] ?? '')),
+        'viralMultiplicador' => round((float) str_replace(',', '.', (string) ($input['viralMultiplicador'] ?? '')), 2),
     ];
     if ($data['estoqueMinimoDias'] === false || $data['estoqueMinimoDias'] < 1 || $data['estoqueMinimoDias'] > 90) {
         return [null, 'O mínimo de dias de estoque precisa ficar entre 1 e 90.'];
@@ -81,7 +108,7 @@ function validate_alert_settings(array $input): array
     }
     foreach (['alertaEstoqueHora', 'resumoSemanalHora', 'relatorioMensalHora'] as $hour) {
         if (!valid_hour($data[$hour])) {
-            return [null, 'Use o formato HH:MM nos horários.'];
+            return [null, 'Use horários entre 00:00 e 23:55.'];
         }
     }
     if ($data['viralMultiplicador'] < 1.2 || $data['viralMultiplicador'] > 10) {

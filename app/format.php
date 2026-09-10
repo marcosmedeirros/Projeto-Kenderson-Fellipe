@@ -55,13 +55,26 @@ function fmt_decimal(float $value, int $digits = 1): string
     return number_format($value, $digits, ',', '.');
 }
 
+/** 2.50 → "2,5"; 2.00 → "2"; 1.25 → "1,25" */
+function fmt_decimal_trim(float $value, int $maxDigits = 2): string
+{
+    $text = number_format($value, $maxDigits, ',', '.');
+    return str_contains($text, ',') ? rtrim(rtrim($text, '0'), ',') : $text;
+}
+
 /** 182.400 → "182,4 mil"; 1.250.000 → "1,3 mi" */
 function fmt_compact($value): string
 {
     $number = (float) $value;
-    foreach ([[1e9, ' bi'], [1e6, ' mi'], [1e3, ' mil']] as [$base, $suffix]) {
+    $units = [[1e9, ' bi'], [1e6, ' mi'], [1e3, ' mil']];
+    foreach ($units as $index => [$base, $suffix]) {
         if (abs($number) >= $base) {
             $short = round($number / $base, 1);
+            // 999.960 arredondaria para "1.000 mil": sobe para a unidade seguinte.
+            if (abs($short) >= 1000 && $index > 0) {
+                [$base, $suffix] = $units[$index - 1];
+                $short = round($number / $base, 1);
+            }
             return number_format($short, floor($short) == $short ? 0 : 1, ',', '.') . $suffix;
         }
     }
@@ -96,16 +109,25 @@ function shift_month(string $key, int $delta): string
     return gmdate('Y-m', gmmktime(12, 0, 0, $month + $delta, 15, $year));
 }
 
+function days_in_month(string $key): int
+{
+    [$year, $month] = array_map('intval', explode('-', $key));
+    return (int) gmdate('t', gmmktime(12, 0, 0, $month, 15, $year));
+}
+
 function month_label(string $key): string
 {
     [$year, $month] = array_map('intval', explode('-', $key));
     return mb_convert_case(MONTH_NAMES[$month - 1], MB_CASE_TITLE) . ' de ' . $year;
 }
 
-/** Dias corridos (arredondado para cima) até a data. */
+/** Diferença em dias do calendário de São Paulo: hoje = 0, amanhã = 1. */
 function days_until(DateTimeInterface $target, ?DateTimeInterface $from = null): int
 {
-    return (int) ceil(($target->getTimestamp() - ($from ?? utc_now())->getTimestamp()) / 86400);
+    $utc = new DateTimeZone('UTC');
+    $start = new DateTimeImmutable(day_key($from ?? utc_now()), $utc);
+    $end = new DateTimeImmutable(day_key($target), $utc);
+    return (int) round(($end->getTimestamp() - $start->getTimestamp()) / 86400);
 }
 
 function fmt_in_days(int $days): string
@@ -145,23 +167,25 @@ function fmt_duration(?int $seconds): string
     return $minutes . ':' . str_pad((string) ($seconds % 60), 2, '0', STR_PAD_LEFT);
 }
 
-/** Dia da semana (0 = domingo), hora, minuto, dia e chaves atuais em São Paulo. */
+/** Dia da semana, hora, minuto, dia e chaves atuais em São Paulo. */
 function now_in_sao_paulo(?DateTimeInterface $date = null): array
 {
     $local = sp_time($date ?? utc_now());
     return [
         'weekday' => (int) $local->format('w'),
+        'iso_weekday' => (int) $local->format('N'),
         'hour' => (int) $local->format('G'),
         'minute' => (int) $local->format('i'),
         'day' => (int) $local->format('j'),
         'day_key' => $local->format('Y-m-d'),
+        'week_key' => $local->format('o-\WW'),
         'month_key' => $local->format('Y-m'),
     ];
 }
 
 function plural(int $count, string $one, string $many): string
 {
-    return $count . ' ' . ($count === 1 ? $one : $many);
+    return fmt_number($count) . ' ' . ($count === 1 ? $one : $many);
 }
 
 function describe_user_agent(?string $agent): string

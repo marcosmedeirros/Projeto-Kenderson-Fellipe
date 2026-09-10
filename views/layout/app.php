@@ -9,6 +9,7 @@ $flashItems = take_flash();
 $navGroups = [
     'Canal' => [
         ['/', 'Visão geral', 'layout-dashboard', null],
+        ['/videos', 'Vídeos', 'clapperboard', null],
         ['/programados', 'Programados', 'calendar-clock', $menuStock['days_covered'] < $menuAlerts['estoqueMinimoDias'] ? 'dot' : null],
         ['/capas', 'Capas', 'image-off', $menuStock['missing_thumbs'] ?: null],
         ['/desempenho', 'Desempenho', 'trending-up', null],

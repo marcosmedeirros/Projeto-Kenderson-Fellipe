@@ -53,6 +53,47 @@ function save_integration(string $key, array $config, string $userId): void
     );
 }
 
+/**
+ * Só permite integrações em endereços públicos. Bloqueia localhost e redes internas, para que
+ * uma URL cadastrada no painel não sirva para sondar a rede do servidor.
+ * Para um Evolution na mesma rede de propósito, use 'allow_private_hosts' => true na configuração.
+ */
+function url_host_is_public(string $url): bool
+{
+    return resolve_public_host($url) !== null;
+}
+
+/**
+ * Resolve o endereço e devolve ['host', 'port', 'ip'] só se TODOS os IPs forem públicos.
+ * O IP devolvido é usado na conexão (CURLOPT_RESOLVE), para o DNS não trocar de endereço no meio.
+ */
+function resolve_public_host(string $url): ?array
+{
+    $parts = parse_url($url);
+    $host = trim((string) ($parts['host'] ?? ''), '[]');
+    $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+    if ($host === '' || !in_array($scheme, ['http', 'https'], true)) {
+        return null;
+    }
+    $port = (int) ($parts['port'] ?? ($scheme === 'https' ? 443 : 80));
+    if (config('allow_private_hosts') === true) {
+        return ['host' => $host, 'port' => $port, 'ip' => null];
+    }
+    if (strtolower($host) === 'localhost') {
+        return null;
+    }
+    $ips = filter_var($host, FILTER_VALIDATE_IP) ? [$host] : (gethostbynamel($host) ?: []);
+    if (!$ips) {
+        return null;
+    }
+    foreach ($ips as $ip) {
+        if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+            return null;
+        }
+    }
+    return ['host' => $host, 'port' => $port, 'ip' => $ips[0]];
+}
+
 function remove_integration(string $key): void
 {
     db_exec('DELETE FROM integrations WHERE `key` = ?', [$key]);

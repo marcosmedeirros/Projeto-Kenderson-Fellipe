@@ -7,17 +7,19 @@ defined('CONTROLADORIA') || exit;
 function scheduled_videos(): array
 {
     $rows = db_all(
-        "SELECT id, title, publish_at, is_short, duration_sec, thumbnail_status, thumbnail_source, thumbnail_updated_at
+        "SELECT id, youtube_id, title, publish_at, is_short, duration_sec, thumbnail_status, thumbnail_id, thumbnail_source, thumbnail_updated_at
            FROM videos WHERE status = 'agendado' AND publish_at > ? ORDER BY publish_at",
         [to_db(utc_now())]
     );
     return array_map(static fn (array $row) => [
         'id' => $row['id'],
+        'youtube_id' => $row['youtube_id'],
         'title' => $row['title'],
         'publish_at' => from_db($row['publish_at']),
         'is_short' => (bool) $row['is_short'],
         'duration_sec' => $row['duration_sec'] !== null ? (int) $row['duration_sec'] : null,
         'thumbnail_status' => $row['thumbnail_status'],
+        'thumbnail_id' => $row['thumbnail_id'] !== null ? (int) $row['thumbnail_id'] : null,
         'thumbnail_source' => $row['thumbnail_source'],
         'thumbnail_updated_at' => from_db($row['thumbnail_updated_at']),
     ], $rows);
@@ -65,12 +67,14 @@ function month_to_date(): array
     return $thisMonth + ['month' => $current, 'previous_views' => $lastMonth['views'], 'change' => $change];
 }
 
+/** Últimos N dias contando hoje, ou um mês inteiro. */
 function daily_series(?int $days = 30, ?string $month = null): array
 {
     if ($month !== null) {
         $rows = db_all('SELECT day, views, watch_minutes, subscribers_gained FROM channel_daily WHERE day LIKE ? ORDER BY day', [$month . '-%']);
     } else {
-        $rows = db_all('SELECT day, views, watch_minutes, subscribers_gained FROM channel_daily WHERE day >= ? ORDER BY day', [day_key(utc_now()->modify("-$days days"))]);
+        $since = day_key(utc_now()->modify('-' . max(0, (int) $days - 1) . ' days'));
+        $rows = db_all('SELECT day, views, watch_minutes, subscribers_gained FROM channel_daily WHERE day >= ? ORDER BY day', [$since]);
     }
     return array_map(static fn ($row) => [
         'day' => $row['day'],
@@ -129,7 +133,7 @@ function median(array $values): float
 function viral_videos(float $multiplier, int $days = 45): array
 {
     $rows = db_all(
-        "SELECT id, title, is_short, published_at, views, views_7d, likes, comments
+        "SELECT id, title, is_short, published_at, views, views_7d
            FROM videos WHERE status = 'publicado' AND views_7d IS NOT NULL AND published_at >= ?
           ORDER BY published_at DESC",
         [to_db(utc_now()->modify('-120 days'))]
@@ -172,17 +176,25 @@ function search_terms(string $month, int $limit = 10): array
     return array_map(static fn ($row) => ['term' => $row['term'], 'views' => (int) $row['views']], $rows);
 }
 
-/** Termos que mais cresceram em relação ao mês anterior. */
+/**
+ * Termos que mais cresceram em relação ao mês anterior.
+ * Compara a média de views por dia, para o mês em andamento não parecer sempre em queda.
+ */
 function rising_terms(string $month, int $limit = 6): array
 {
+    $previousMonth = shift_month($month, -1);
+    $currentDays = $month === month_key() ? max(1, (int) substr(day_key(), 8, 2)) : days_in_month($month);
+    $previousDays = days_in_month($previousMonth);
+
     $previous = [];
-    foreach (search_terms(shift_month($month, -1), 50) as $row) {
+    foreach (search_terms($previousMonth, 50) as $row) {
         $previous[$row['term']] = $row['views'];
     }
     $terms = [];
     foreach (search_terms($month, 30) as $row) {
         $before = $previous[$row['term']] ?? 0;
-        $terms[] = $row + ['before' => $before, 'growth' => $before > 0 ? ($row['views'] - $before) / $before : null];
+        $growth = $before > 0 ? ($row['views'] / $currentDays) / ($before / $previousDays) - 1 : null;
+        $terms[] = $row + ['before' => $before, 'growth' => $growth];
     }
     usort($terms, static fn ($a, $b) => ($b['growth'] ?? 99) <=> ($a['growth'] ?? 99));
     return array_slice($terms, 0, $limit);

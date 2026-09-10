@@ -22,12 +22,17 @@ function action_evolution_save(): void
         flash('erro', 'Informe a URL completa do Evolution, com http:// ou https://.');
         redirect('/integracoes');
     }
+    if (!url_host_is_public($baseUrl)) {
+        flash('erro', 'Use o endereço público do Evolution. Endereços internos, ou que não existem no DNS, são bloqueados por segurança.');
+        redirect('/integracoes');
+    }
     if (!preg_match('/^[\w.-]{1,64}$/', $instance)) {
         flash('erro', 'O nome da instância só pode ter letras, números, ponto, hífen e _.');
         redirect('/integracoes');
     }
+    // "Deixe em branco para manter": vale para a chave salva no painel e para a do arquivo de configuração.
     $current = evolution_config();
-    if ($apiKey === '' && ($current['source'] ?? null) === 'painel') {
+    if ($apiKey === '' && $current !== null) {
         $apiKey = $current['api_key'];
     }
     if ($apiKey === '') {
@@ -37,7 +42,7 @@ function action_evolution_save(): void
 
     save_integration('evolution', ['base_url' => $baseUrl, 'instance' => $instance, 'api_key' => $apiKey], $user['id']);
     log_audit($user['id'], 'integracao.salva', ['integracao' => 'evolution', 'instancia' => $instance]);
-    flash('ok', evolution_connection_state() === 'open'
+    flash('ok', evolution_connection_state(true) === 'open'
         ? 'Evolution salvo e número conectado.'
         : 'Evolution salvo. O número ainda não aparece como conectado; confira a instância no Evolution.');
     redirect('/integracoes');
@@ -53,7 +58,7 @@ function action_evolution_test(): void
         'nao_configurado' => ['erro', 'Salve as configurações do Evolution primeiro.'],
         'erro' => ['erro', 'Não foi possível falar com o Evolution. Confira a URL, a instância e a API key.'],
     ];
-    [$type, $message] = $messages[evolution_connection_state()];
+    [$type, $message] = $messages[evolution_connection_state(true)];
     flash($type, $message);
     redirect('/integracoes');
 }
@@ -68,7 +73,7 @@ function action_gemini_save(): void
         redirect('/integracoes');
     }
     $current = gemini_config();
-    if ($apiKey === '' && ($current['source'] ?? null) === 'painel') {
+    if ($apiKey === '' && $current !== null) {
         $apiKey = $current['api_key'];
     }
     if ($apiKey === '') {
@@ -100,7 +105,7 @@ function page_users(): void
     $admin = require_permission('usuarios');
     render_page('users', 'Usuários', [
         'admin' => $admin,
-        'users' => db_all('SELECT id, name, email, role, active, totp_enabled, must_change_password, last_login_at FROM users ORDER BY name'),
+        'users' => db_all('SELECT id, name, email, role, active, totp_enabled, must_change_password, temp_password_expires_at, last_login_at FROM users ORDER BY name'),
     ]);
 }
 
@@ -116,6 +121,11 @@ function find_target_user(): ?array
         return null;
     }
     return db_one('SELECT id, name, role, active FROM users WHERE id = ?', [$id]);
+}
+
+function temporary_password_expiry(): string
+{
+    return to_db(utc_now()->modify('+' . TEMP_PASSWORD_TTL . ' seconds'));
 }
 
 function action_user_create(): void
@@ -137,10 +147,11 @@ function action_user_create(): void
         $temporary = generate_temporary_password();
         db_insert('users', [
             'id' => uuid_v4(), 'name' => $name, 'email' => $email, 'password_hash' => hash_password($temporary),
-            'role' => $role, 'active' => 1, 'must_change_password' => 1, 'totp_enabled' => 0, 'created_at' => to_db(utc_now()),
+            'role' => $role, 'active' => 1, 'must_change_password' => 1, 'temp_password_expires_at' => temporary_password_expiry(),
+            'totp_enabled' => 0, 'created_at' => to_db(utc_now()),
         ]);
         log_audit($admin['id'], 'usuario.criado', ['email' => $email, 'perfil' => $role]);
-        flash('ok', "$name foi cadastrado. Envie a senha temporária por um canal privado: ela aparece só agora e será trocada no primeiro acesso.", $temporary);
+        flash('ok', "$name foi cadastrado. Envie a senha temporária por um canal privado: ela aparece só agora, vale por 72 horas e será trocada no primeiro acesso.", $temporary);
     }
     redirect('/usuarios');
 }
@@ -195,10 +206,14 @@ function action_user_reset_password(): void
         flash('erro', 'Para trocar a sua senha, use Minha conta.');
     } else {
         $temporary = generate_temporary_password();
-        db_exec('UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?', [hash_password($temporary), $target['id']]);
+        db_exec(
+            'UPDATE users SET password_hash = ?, must_change_password = 1, temp_password_expires_at = ? WHERE id = ?',
+            [hash_password($temporary), temporary_password_expiry(), $target['id']]
+        );
         revoke_user_sessions($target['id']);
+        db_exec('DELETE FROM login_attempts WHERE email = (SELECT email FROM users WHERE id = ?)', [$target['id']]);
         log_audit($admin['id'], 'usuario.senha_redefinida', ['usuario' => $target['name']]);
-        flash('ok', 'Nova senha temporária de ' . $target['name'] . '. As sessões do usuário foram encerradas.', $temporary);
+        flash('ok', 'Nova senha temporária de ' . $target['name'] . ' (vale por 72 horas). As sessões do usuário foram encerradas.', $temporary);
     }
     redirect('/usuarios');
 }

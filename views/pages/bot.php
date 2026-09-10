@@ -34,10 +34,10 @@ $originLabels = ['whatsapp' => ['WhatsApp', 'info'], 'simulador' => ['Simulador'
     </div>
 </div>
 
-<div class="mt-6 grid gap-6 xl:grid-cols-[1fr_400px]">
-    <section class="card">
+<div class="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_400px]">
+    <section class="card min-w-0">
         <?= card_header('Testar comandos', 'Veja a resposta antes de usar no grupo', 'message-square') ?>
-        <div class="p-5">
+        <div class="p-3 sm:p-5">
             <div class="overflow-hidden rounded-xl border border-line" data-simulator>
                 <div class="flex items-center gap-3 border-b border-line bg-panel-2 px-4 py-3">
                     <span class="grid size-9 place-items-center rounded-full bg-accent text-accent-ink"><?= icon('bot') ?></span>
@@ -46,8 +46,8 @@ $originLabels = ['whatsapp' => ['WhatsApp', 'info'], 'simulador' => ['Simulador'
                         <p class="text-xs text-muted">Simulador · usa os dados reais do painel, não envia nada no WhatsApp</p>
                     </div>
                 </div>
-                <div class="h-[420px] space-y-2.5 overflow-y-auto bg-[#0c1318] p-4" data-simulator-log aria-live="polite">
-                    <p class="mx-auto mt-24 max-w-xs text-center text-sm text-dim" data-simulator-empty>Toque em um comando abaixo para ver exatamente o que o bot responderia no grupo.</p>
+                <div class="h-[360px] space-y-2.5 overflow-y-auto bg-[#0c1318] p-3 sm:h-[420px] sm:p-4" data-simulator-log aria-live="polite">
+                    <p class="mx-auto mt-16 max-w-xs sm:mt-24 text-center text-sm text-dim" data-simulator-empty>Toque em um comando abaixo para ver exatamente o que o bot responderia no grupo.</p>
                 </div>
                 <div class="border-t border-line bg-panel p-3">
                     <div class="mb-2.5 flex flex-wrap gap-1.5">
@@ -109,8 +109,21 @@ $originLabels = ['whatsapp' => ['WhatsApp', 'info'], 'simulador' => ['Simulador'
 <section class="card mt-6">
     <?= card_header('Histórico', 'Últimas 30 mensagens do bot', 'bot') ?>
     <?php if ($messages): ?>
-        <div class="overflow-x-auto">
-            <table class="table-base min-w-[640px]">
+        <ul class="divide-y divide-line md:hidden">
+            <?php foreach ($messages as $message): [$originLabel, $originTone] = $originLabels[$message['origin']] ?? ['Outro', 'neutral']; ?>
+                <li class="px-4 py-3">
+                    <div class="flex flex-wrap items-center gap-1.5">
+                        <?= badge($originLabel, $originTone) ?>
+                        <span class="text-sm font-semibold"><?= e($message['direction'] === 'entrada' ? ($message['sender'] ?? 'Grupo') : 'Bot') ?></span>
+                        <?= !$message['delivered'] ? badge('Não entregue', 'danger') : '' ?>
+                        <span class="ml-auto font-mono text-[11px] text-dim"><?= e(fmt_datetime($message['created_at'])) ?></span>
+                    </div>
+                    <p class="mt-1 line-clamp-2 text-sm break-words text-muted"><?= e(str_replace('*', '', strtok($message['text'], "\n"))) ?></p>
+                </li>
+            <?php endforeach; ?>
+        </ul>
+        <div class="hidden overflow-x-auto md:block">
+            <table class="table-base">
                 <thead><tr><th>Quando</th><th>Origem</th><th>Quem</th><th>Mensagem</th></tr></thead>
                 <tbody>
                 <?php foreach ($messages as $message): [$originLabel, $originTone] = $originLabels[$message['origin']] ?? ['Outro', 'neutral']; ?>

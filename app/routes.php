@@ -15,14 +15,30 @@ function routes(): array
         'GET /primeiro-acesso' => 'page_first_access',
         'POST /primeiro-acesso' => 'action_first_access',
 
+        'GET /videos' => 'page_videos',
+        'GET /videos/novo' => 'page_video_new',
+        'GET /videos/editar' => 'page_video_edit',
+        'POST /videos/salvar' => 'action_video_save',
+        'POST /videos/excluir' => 'action_video_delete',
+
         'GET /programados' => 'page_scheduled',
         'GET /capas' => 'page_thumbnails',
         'POST /capas/status' => 'action_thumbnail_status',
+        'GET /capas/biblioteca' => 'page_library',
+        'POST /capas/biblioteca/enviar' => 'action_thumbnail_upload',
+        'GET /capas/biblioteca/editar' => 'page_thumbnail_edit',
+        'POST /capas/biblioteca/salvar' => 'action_thumbnail_update',
+        'POST /capas/biblioteca/usar' => 'action_thumbnail_use',
+        'POST /capas/biblioteca/excluir' => 'action_thumbnail_delete',
+        'GET /capas/arquivo' => 'serve_thumbnail',
         'GET /desempenho' => 'page_performance',
         'GET /ideias' => 'page_ideas',
         'POST /ideias/gerar' => 'action_ideas_generate',
         'POST /ideias/status' => 'action_idea_status',
         'POST /ideias/nova' => 'action_idea_create',
+        'GET /ideias/editar' => 'page_idea_edit',
+        'POST /ideias/salvar' => 'action_idea_save',
+        'POST /ideias/excluir' => 'action_idea_delete',
 
         'GET /bot' => 'page_bot',
         'POST /bot/simular' => 'action_bot_simulate',
@@ -52,13 +68,12 @@ function routes(): array
 
         'POST /api/webhooks/evolution' => 'api_evolution_webhook',
         'GET /api/health' => 'api_health',
-        'GET /api/cron' => 'api_cron',
         'POST /api/cron' => 'api_cron',
     ];
 }
 
 /** Rotas chamadas por outros sistemas: autenticadas por token, sem CSRF. */
-const EXTERNAL_ROUTES = ['POST /api/webhooks/evolution', 'GET /api/health', 'GET /api/cron', 'POST /api/cron'];
+const EXTERNAL_ROUTES = ['POST /api/webhooks/evolution', 'GET /api/health', 'POST /api/cron'];
 
 function dispatch(): void
 {

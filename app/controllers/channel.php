@@ -25,7 +25,7 @@ const SCHEDULED_FILTERS = ['todos' => 'Todos', 'sem-capa' => 'Sem capa', 'longos
 
 function page_scheduled(): void
 {
-    require_user();
+    $user = require_user();
     $filter = array_key_exists(query_string('filtro'), SCHEDULED_FILTERS) ? query_string('filtro') : 'todos';
     $videos = scheduled_videos();
     $filtered = array_values(array_filter($videos, static function ($video) use ($filter) {
@@ -46,6 +46,7 @@ function page_scheduled(): void
         'filter' => $filter,
         'stock' => summarize_stock($videos),
         'alerts' => get_setting('alertas'),
+        'canManage' => can($user['role'], 'operar'),
     ]);
 }
 
@@ -57,7 +58,7 @@ function page_thumbnails(): void
     $pending = array_filter($videos, static fn ($video) => $video['thumbnail_status'] !== 'ok');
     $warnDays = (int) $alerts['capaAvisoDias'];
     $groups = array_values(array_filter([
-        ['title' => "Urgente · publica em até $warnDays dias", 'tone' => 'danger', 'items' => array_filter($pending, static fn ($v) => days_until($v['publish_at']) <= $warnDays)],
+        ['title' => 'Urgente · publica em até ' . plural($warnDays, 'dia', 'dias'), 'tone' => 'danger', 'items' => array_filter($pending, static fn ($v) => days_until($v['publish_at']) <= $warnDays)],
         ['title' => 'Nesta semana', 'tone' => 'warn', 'items' => array_filter($pending, static fn ($v) => days_until($v['publish_at']) > $warnDays && days_until($v['publish_at']) <= 7)],
         ['title' => 'Mais para frente', 'tone' => 'neutral', 'items' => array_filter($pending, static fn ($v) => days_until($v['publish_at']) > max(7, $warnDays))],
     ], static fn ($group) => count($group['items']) > 0));
@@ -80,9 +81,10 @@ function action_thumbnail_status(): void
     }
     $video = db_one("SELECT title FROM videos WHERE id = ? AND status = 'agendado'", [$videoId]);
     if ($video !== null) {
+        $now = to_db(utc_now());
         db_exec(
-            "UPDATE videos SET thumbnail_status = ?, thumbnail_source = 'manual', thumbnail_updated_by = ?, thumbnail_updated_at = ? WHERE id = ?",
-            [$status, $user['id'], to_db(utc_now()), $videoId]
+            "UPDATE videos SET thumbnail_status = ?, thumbnail_source = 'manual', thumbnail_updated_by = ?, thumbnail_updated_at = ?, updated_at = ? WHERE id = ?",
+            [$status, $user['id'], $now, $now, $videoId]
         );
         log_audit($user['id'], 'capa.status', ['video' => $video['title'], 'status' => $status]);
         flash('ok', $status === 'ok' ? 'Capa marcada como feita.' : 'Capa voltou para pendente.');
@@ -97,6 +99,9 @@ function page_performance(): void
     $requested = query_string('mes');
     $month = preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $requested) && $requested <= $current ? $requested : $current;
     $alerts = get_setting('alertas');
+    // O card mostra barras de views: ordena por views, com o crescimento como detalhe.
+    $terms = rising_terms($month, 30);
+    usort($terms, static fn ($a, $b) => $b['views'] <=> $a['views']);
     render_page('performance', 'Desempenho', [
         'month' => $month,
         'current' => $current,
@@ -105,7 +110,7 @@ function page_performance(): void
         'series' => daily_series(null, $month),
         'top' => top_videos($month, 8),
         'retention' => month_retention($month),
-        'rising' => rising_terms($month, 8),
+        'rising' => array_slice($terms, 0, 8),
         'alerts' => $alerts,
         'virals' => viral_videos((float) $alerts['viralMultiplicador']),
     ]);
@@ -124,25 +129,35 @@ function page_ideas(): void
         'rising' => rising_terms(month_key(), 8),
         'geminiOn' => gemini_config() !== null,
         'canOperate' => can($user['role'], 'operar'),
+        'canDelete' => can($user['role'], 'excluir'),
     ]);
 }
+
+const IDEAS_GENERATIONS_PER_HOUR = 10;
 
 function action_ideas_generate(): void
 {
     $user = require_permission('operar');
+    $recent = (int) db_value("SELECT COUNT(*) FROM audit_logs WHERE action = 'ideia.gerada' AND created_at > ?", [to_db(utc_now()->modify('-1 hour'))]);
+    if ($recent >= IDEAS_GENERATIONS_PER_HOUR) {
+        flash('erro', 'Limite de ' . IDEAS_GENERATIONS_PER_HOUR . ' gerações por hora atingido. Tente de novo mais tarde.');
+        redirect('/ideias');
+    }
     try {
         $result = generate_ideas();
         log_audit($user['id'], 'ideia.gerada', ['quantidade' => $result['created'], 'origem' => $result['generated_by']]);
         if ($result['created'] === 0) {
             flash('erro', 'Não surgiram ideias novas com os dados atuais. Tente de novo mais tarde.');
         } elseif ($result['generated_by'] === 'ia') {
-            flash('ok', $result['created'] . ' ideias novas geradas pelo Gemini.');
+            flash('ok', plural($result['created'], 'ideia nova gerada', 'ideias novas geradas') . ' pelo Gemini.');
         } else {
-            flash('ok', $result['created'] . ' ideias de exemplo criadas a partir das buscas. Cadastre a chave do Gemini para usar IA.');
+            flash('ok', plural($result['created'], 'ideia de exemplo criada', 'ideias de exemplo criadas') . ' a partir das buscas. Cadastre a chave do Gemini para usar IA.');
         }
+    } catch (UserFacingException $error) {
+        flash('erro', $error->getMessage());
     } catch (Throwable $error) {
         error_log('[controladoria] ideias: ' . $error->getMessage());
-        flash('erro', $error instanceof RuntimeException ? $error->getMessage() : 'Não foi possível gerar ideias agora.');
+        flash('erro', 'Não foi possível gerar ideias agora. Tente de novo mais tarde.');
     }
     redirect('/ideias');
 }
@@ -165,8 +180,8 @@ function action_idea_status(): void
 function action_idea_create(): void
 {
     $user = require_permission('operar');
-    $title = post_string('title', 140);
-    $rationale = post_string('rationale', 400);
+    $title = post_string('title', 200);
+    $rationale = post_string('rationale', 1000);
     if (mb_strlen($title) < 5) {
         flash('erro', 'O título precisa ter pelo menos 5 caracteres.');
     } elseif (mb_strlen($rationale) < 5) {

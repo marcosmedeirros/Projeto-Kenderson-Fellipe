@@ -6,7 +6,7 @@ const COMMAND_INFO = [
     'programados' => ['label' => '/programados', 'description' => 'Vídeos agendados, datas e até quando o estoque dura.'],
     'semcapa' => ['label' => '/semcapa', 'description' => 'Vídeos programados que ainda estão sem thumbnail.'],
     'resumo' => ['label' => '/resumo', 'description' => 'Visão rápida: estoque, capas, views do mês e destaques.'],
-    'virais' => ['label' => '/virais', 'description' => 'Vídeos que performaram acima da média nos últimos 45 dias.'],
+    'virais' => ['label' => '/virais', 'description' => 'Vídeos que performaram acima da mediana nos últimos 45 dias.'],
     'ideias' => ['label' => '/ideias', 'description' => 'Ideias de pauta aprovadas e as mais bem avaliadas.'],
     'ajuda' => ['label' => '/ajuda', 'description' => 'Lista os comandos disponíveis.'],
 ];
@@ -46,7 +46,7 @@ function build_stock_alert(array $stock, int $minimumDays): string
         return "⚠️ *Nenhum vídeo programado.*\nO estoque acabou. Hora de gravar!";
     }
     return '⚠️ *Estoque baixo:* os vídeos programados cobrem só até *' . fmt_date($stock['last_date']) . '* (' . plural($stock['days_covered'], 'dia', 'dias') . ").\n"
-        . "O mínimo combinado é de $minimumDays dias. Bom momento para agendar gravação.";
+        . 'O mínimo combinado é de ' . plural($minimumDays, 'dia', 'dias') . '. Bom momento para agendar gravação.';
 }
 
 function build_thumb_alert(array $pending): string
@@ -64,13 +64,13 @@ function run_command(string $command): string
             $alerts = get_setting('alertas');
             $stock = summarize_stock($videos);
             if (!$videos) {
-                return build_stock_alert($stock, $alerts['estoqueMinimoDias']);
+                return build_stock_alert($stock, (int) $alerts['estoqueMinimoDias']);
             }
             $text = '📅 *' . plural(count($videos), 'vídeo programado', 'vídeos programados') . "*\n\n"
                 . implode("\n", array_map('scheduled_line', $videos))
                 . "\n\nEstoque cobre até *" . fmt_date($stock['last_date']) . '* (' . plural($stock['days_covered'], 'dia', 'dias') . ').';
             if ($stock['days_covered'] < $alerts['estoqueMinimoDias']) {
-                $text .= "\n⚠️ Abaixo do mínimo de {$alerts['estoqueMinimoDias']} dias. Bom momento para gravar.";
+                $text .= "\n⚠️ Abaixo do mínimo de " . plural((int) $alerts['estoqueMinimoDias'], 'dia', 'dias') . '. Bom momento para gravar.';
             }
             return $text;
 
@@ -102,7 +102,7 @@ function run_command(string $command): string
                 '➕ Inscritos no mês: *' . fmt_compact($mtd['subscribers']) . '*',
             ];
             if ($virals['items']) {
-                $lines[] = '🔥 Em alta: *' . $virals['items'][0]['title'] . '* (' . fmt_ratio($virals['items'][0]['ratio']) . ' a média)';
+                $lines[] = '🔥 Em alta: *' . $virals['items'][0]['title'] . '* (' . fmt_ratio($virals['items'][0]['ratio']) . ' a mediana)';
             }
             $lines[] = '💡 Ideias aprovadas: *' . $approved . '*';
             if ($stock['days_covered'] < $alerts['estoqueMinimoDias']) {
@@ -115,9 +115,9 @@ function run_command(string $command): string
             $alerts = get_setting('alertas');
             $items = viral_videos((float) $alerts['viralMultiplicador'])['items'];
             if (!$items) {
-                return 'Nenhum vídeo passou de ' . fmt_decimal((float) $alerts['viralMultiplicador']) . 'x a média nos últimos 45 dias.';
+                return 'Nenhum vídeo passou de ' . fmt_decimal_trim((float) $alerts['viralMultiplicador']) . 'x a mediana do canal nos últimos 45 dias.';
             }
-            $lines = array_map(static fn ($video) => '• ' . $video['title'] . ($video['is_short'] ? ' [Short]' : '') . ' · ' . fmt_compact($video['views_7d']) . ' views em 7 dias (*' . fmt_ratio($video['ratio']) . '* a média)', array_slice($items, 0, 8));
+            $lines = array_map(static fn ($video) => '• ' . $video['title'] . ($video['is_short'] ? ' [Short]' : '') . ' · ' . fmt_compact($video['views_7d']) . ' views em 7 dias (*' . fmt_ratio($video['ratio']) . '* a mediana)', array_slice($items, 0, 8));
             return "🔥 *Vídeos em alta · últimos 45 dias*\n\n" . implode("\n", $lines);
 
         case 'ideias':
@@ -167,27 +167,56 @@ function build_monthly_report(string $month): string
     return implode("\n", $lines);
 }
 
-/* ---------------- Evolution API (WhatsApp) ---------------- */
+/* ---------------- HTTP e Evolution API (WhatsApp) ---------------- */
 
-function http_request(string $method, string $url, array $headers = [], ?string $body = null, int $timeout = 15): array
+/**
+ * $pin = ['host' => ..., 'port' => ..., 'ip' => ...]: conecta no IP já validado, sem resolver o DNS
+ * de novo (evita que o endereço mude para a rede interna entre a checagem e a conexão).
+ */
+function http_request(string $method, string $url, array $headers = [], ?string $body = null, int $timeout = 15, ?array $pin = null): array
 {
     $curl = curl_init($url);
-    curl_setopt_array($curl, [
+    $options = [
         CURLOPT_CUSTOMREQUEST => $method,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_TIMEOUT => $timeout,
-        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_CONNECTTIMEOUT => min(8, $timeout),
         CURLOPT_HTTPHEADER => $headers,
         CURLOPT_FOLLOWLOCATION => false,
         CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
-    ]);
-    if ($body !== null) {
-        curl_setopt($curl, CURLOPT_POSTFIELDS, $body);
+    ];
+    if ($pin !== null && !empty($pin['ip'])) {
+        $isV6 = str_contains($pin['ip'], ':');
+        $options[CURLOPT_RESOLVE] = [$pin['host'] . ':' . $pin['port'] . ':' . ($isV6 ? '[' . $pin['ip'] . ']' : $pin['ip'])];
+        $options[CURLOPT_IPRESOLVE] = $isV6 ? CURL_IPRESOLVE_V6 : CURL_IPRESOLVE_V4;
     }
+    if ($body !== null) {
+        $options[CURLOPT_POSTFIELDS] = $body;
+    }
+    curl_setopt_array($curl, $options);
     $response = curl_exec($curl);
     $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
     curl_close($curl);
     return ['status' => $response === false ? 0 : $status, 'body' => $response === false ? '' : (string) $response];
+}
+
+/** Status -1 = Evolution não configurado; -2 = endereço bloqueado por segurança; 0 = sem conexão. */
+function evolution_request(string $method, string $path, ?string $body = null, int $timeout = 15): array
+{
+    $config = evolution_config();
+    if ($config === null) {
+        return ['status' => -1, 'body' => ''];
+    }
+    $url = rtrim($config['base_url'], '/') . $path;
+    $pin = resolve_public_host($url);
+    if ($pin === null) {
+        return ['status' => -2, 'body' => ''];
+    }
+    $headers = ['apikey: ' . $config['api_key']];
+    if ($body !== null) {
+        $headers[] = 'Content-Type: application/json';
+    }
+    return http_request($method, $url, $headers, $body, $timeout, $pin);
 }
 
 function evolution_send_text(string $chatId, string $text): array
@@ -196,40 +225,42 @@ function evolution_send_text(string $chatId, string $text): array
     if ($config === null) {
         return ['ok' => false, 'error' => 'WhatsApp não configurado.'];
     }
-    $response = http_request(
-        'POST',
-        rtrim($config['base_url'], '/') . '/message/sendText/' . rawurlencode($config['instance']),
-        ['Content-Type: application/json', 'apikey: ' . $config['api_key']],
-        json_encode(['number' => $chatId, 'text' => $text], JSON_UNESCAPED_UNICODE)
-    );
-    if ($response['status'] === 0) {
-        return ['ok' => false, 'error' => 'Não foi possível conectar ao Evolution.'];
+    $response = evolution_request('POST', '/message/sendText/' . rawurlencode($config['instance']), json_encode(['number' => $chatId, 'text' => $text], JSON_UNESCAPED_UNICODE));
+    switch (true) {
+        case $response['status'] === -2:
+            return ['ok' => false, 'error' => 'Endereço do Evolution bloqueado por segurança (rede interna).'];
+        case $response['status'] === 0:
+            return ['ok' => false, 'error' => 'Não foi possível conectar ao Evolution.'];
+        case $response['status'] >= 300 || $response['status'] < 200:
+            return ['ok' => false, 'error' => 'O Evolution respondeu com erro ' . $response['status'] . '.'];
+        default:
+            return ['ok' => true, 'error' => null];
     }
-    if ($response['status'] >= 300) {
-        return ['ok' => false, 'error' => 'O Evolution respondeu com erro ' . $response['status'] . '.'];
-    }
-    return ['ok' => true, 'error' => null];
 }
 
-/** open | connecting | close | nao_configurado | erro */
-function evolution_connection_state(): string
+/** open | connecting | close | nao_configurado | erro. Guardado por 60 s para as páginas não travarem. */
+function evolution_connection_state(bool $fresh = false): string
 {
     $config = evolution_config();
     if ($config === null) {
         return 'nao_configurado';
     }
-    $response = http_request(
-        'GET',
-        rtrim($config['base_url'], '/') . '/instance/connectionState/' . rawurlencode($config['instance']),
-        ['apikey: ' . $config['api_key']],
-        null,
-        8
-    );
-    if ($response['status'] !== 200) {
-        return 'erro';
+    if (!$fresh) {
+        $cached = cache_get('evolution_estado');
+        if (is_string($cached)) {
+            return $cached;
+        }
     }
-    $state = json_decode($response['body'], true)['instance']['state'] ?? null;
-    return in_array($state, ['open', 'connecting', 'close'], true) ? $state : 'erro';
+    $response = evolution_request('GET', '/instance/connectionState/' . rawurlencode($config['instance']), null, 4);
+    $state = 'erro';
+    if ($response['status'] === 200) {
+        $value = json_decode($response['body'], true)['instance']['state'] ?? null;
+        if (in_array($value, ['open', 'connecting', 'close'], true)) {
+            $state = $value;
+        }
+    }
+    cache_put('evolution_estado', $state, 60);
+    return $state;
 }
 
 function record_bot_message(array $message): void

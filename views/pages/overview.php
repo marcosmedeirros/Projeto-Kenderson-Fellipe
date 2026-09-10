@@ -25,7 +25,7 @@ if ($mtd['change'] === null) {
         'warn',
         'triangle-alert',
         $stock['total'] ? 'O estoque cobre só até ' . fmt_date($stock['last_date']) . ' (' . plural($stock['days_covered'], 'dia', 'dias') . '). Hora de gravar.' : 'Nenhum vídeo programado. Hora de gravar.',
-        'O mínimo combinado é de ' . (int) $alerts['estoqueMinimoDias'] . ' dias de vídeos agendados.',
+        'O mínimo combinado é de ' . plural((int) $alerts['estoqueMinimoDias'], 'dia', 'dias') . ' de vídeos agendados.',
         '<a href="/programados" class="btn btn-secondary btn-sm">Ver programados ' . icon('arrow-right', 'size-3.5') . '</a>',
         'mb-6'
     ) ?>
@@ -35,12 +35,12 @@ if ($mtd['change'] === null) {
     <?= stat_card([
         'label' => 'Programados', 'icon' => 'calendar-clock', 'href' => '/programados',
         'valueHtml' => (string) $stock['total'],
-        'hintHtml' => e($stock['shorts'] ? ($stock['total'] - $stock['shorts']) . ' vídeos · ' . $stock['shorts'] . ' Shorts' : 'vídeos agendados'),
+        'hintHtml' => e($stock['shorts'] ? plural($stock['total'] - $stock['shorts'], 'vídeo', 'vídeos') . ' · ' . plural($stock['shorts'], 'Short', 'Shorts') : 'vídeos agendados'),
     ]) ?>
     <?= stat_card([
         'label' => 'Estoque até', 'icon' => 'calendar-clock', 'href' => '/programados', 'tone' => $lowStock ? 'warn' : 'neutral',
         'valueHtml' => $stock['last_date'] ? e(fmt_date($stock['last_date'])) : '—',
-        'hintHtml' => e($stock['last_date'] ? $stock['days_covered'] . ' dias · mínimo ' . $alerts['estoqueMinimoDias'] : 'sem vídeos agendados'),
+        'hintHtml' => e($stock['last_date'] ? plural($stock['days_covered'], 'dia', 'dias') . ' · mínimo ' . $alerts['estoqueMinimoDias'] : 'sem vídeos agendados'),
     ]) ?>
     <?= stat_card([
         'label' => 'Sem capa', 'icon' => 'image-off', 'href' => '/capas', 'tone' => $stock['missing_thumbs'] ? 'warn' : 'neutral',
@@ -75,7 +75,8 @@ if ($mtd['change'] === null) {
                 <?php endforeach; ?>
             </ul>
         <?php else: ?>
-            <?= empty_state('calendar-clock', 'Nenhum vídeo agendado', 'Quando houver vídeos programados no YouTube, eles aparecem aqui.') ?>
+            <?= empty_state('calendar-clock', 'Nenhum vídeo agendado', 'Cadastre os vídeos agendados em Vídeos ou conecte o YouTube.',
+                can($user['role'], 'operar') ? '<a href="/videos/novo" class="btn btn-secondary btn-sm">' . icon('plus', 'size-3.5') . 'Novo vídeo</a>' : '') ?>
         <?php endif; ?>
     </section>
 
@@ -94,7 +95,7 @@ if ($mtd['change'] === null) {
 
 <div class="mt-6 grid gap-6 lg:grid-cols-2 xl:grid-cols-3">
     <section class="card">
-        <?= card_header('Em alta', 'Acima de ' . e(fmt_decimal((float) $alerts['viralMultiplicador'])) . 'x a média em 7 dias', 'flame', '<a href="/desempenho" class="btn btn-ghost btn-sm">Ver tudo</a>') ?>
+        <?= card_header('Em alta', 'Acima de ' . e(fmt_decimal_trim((float) $alerts['viralMultiplicador'])) . 'x a mediana em 7 dias', 'flame', '<a href="/desempenho" class="btn btn-ghost btn-sm">Ver tudo</a>') ?>
         <?php if ($virals['items']): ?>
             <ul class="divide-y divide-line">
                 <?php foreach (array_slice($virals['items'], 0, 4) as $video): ?>
@@ -108,7 +109,7 @@ if ($mtd['change'] === null) {
                 <?php endforeach; ?>
             </ul>
         <?php else: ?>
-            <?= empty_state('flame', 'Nenhum vídeo acima da média', 'Nos últimos 45 dias nenhum vídeo passou do multiplicador configurado.') ?>
+            <?= empty_state('flame', 'Nenhum vídeo acima da mediana','Nos últimos 45 dias nenhum vídeo passou do multiplicador configurado.') ?>
         <?php endif; ?>
     </section>
 
