@@ -1,0 +1,143 @@
+/* Fonte do CSS. Gere assets/app.css com: npm run build:css */
+@import "tailwindcss" source(none);
+
+@source "../views";
+@source "../app";
+@source "../assets/app.js";
+
+@font-face {
+  font-family: "Archivo";
+  font-style: normal;
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  font-display: swap;
+  src: url("/assets/fonts/archivo-variable.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Source Sans 3";
+  font-style: normal;
+  font-weight: 200 900;
+  font-display: swap;
+  src: url("/assets/fonts/source-sans-3-variable.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/assets/fonts/ibm-plex-mono-400.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/assets/fonts/ibm-plex-mono-500.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/assets/fonts/ibm-plex-mono-600.woff2") format("woff2");
+}
+
+@theme {
+  --color-bg: #0a0f14;
+  --color-panel: #10171e;
+  --color-panel-2: #151e27;
+  --color-panel-3: #1c2732;
+  --color-line: #1f2a35;
+  --color-line-2: #2c3a48;
+  --color-ink: #e7edf2;
+  --color-muted: #93a3b0;
+  --color-dim: #65747f;
+  --color-accent: #2db89b;
+  --color-accent-strong: #45d3b4;
+  --color-accent-ink: #03211b;
+  --color-warn: #e9a23b;
+  --color-danger: #f0564a;
+  --color-info: #5aa9e6;
+
+  --font-sans: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Archivo", "Arial Narrow", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-accent) 35%, transparent);
+}
+
+@layer components {
+  .display {
+    font-family: var(--font-display);
+    font-stretch: 80%;
+    letter-spacing: -0.01em;
+  }
+  .eyebrow {
+    @apply font-mono text-[11px] font-medium tracking-[0.12em] text-muted uppercase;
+  }
+  .card {
+    @apply rounded-xl border border-line bg-panel;
+  }
+  .btn {
+    @apply inline-flex h-9 cursor-pointer items-center justify-center gap-2 rounded-lg px-3.5 text-sm font-semibold whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:pointer-events-none disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply bg-accent text-accent-ink hover:bg-accent-strong;
+  }
+  .btn-secondary {
+    @apply border border-line-2 bg-panel-2 text-ink hover:bg-panel-3;
+  }
+  .btn-ghost {
+    @apply text-muted hover:bg-panel-2 hover:text-ink;
+  }
+  .btn-danger {
+    @apply border border-danger/40 text-danger hover:bg-danger/10;
+  }
+  .btn-sm {
+    @apply h-8 px-2.5 text-[13px];
+  }
+  .input {
+    @apply h-10 w-full rounded-lg border border-line-2 bg-bg px-3 text-sm text-ink placeholder:text-dim focus:border-accent focus:ring-2 focus:ring-accent/25 focus:outline-none disabled:opacity-60;
+  }
+  .label {
+    @apply mb-1.5 block text-[13px] font-semibold text-ink;
+  }
+  .hint {
+    @apply mt-1 text-xs text-muted;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap;
+  }
+  .table-base {
+    @apply w-full text-sm;
+  }
+  .table-base th {
+    @apply border-b border-line px-4 py-2.5 text-left font-mono text-[11px] font-medium tracking-[0.08em] text-dim uppercase;
+  }
+  .table-base td {
+    @apply border-b border-line px-4 py-3 align-middle;
+  }
+  .table-base tbody tr:last-child td {
+    @apply border-b-0;
+  }
+  .checkbox {
+    @apply size-4 rounded border-line-2 accent-accent;
+  }
+}

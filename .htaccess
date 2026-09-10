@@ -1,0 +1,28 @@
+Options -Indexes
+DirectoryIndex index.php
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # Só a pasta assets é servida direto (CSS, JS, fontes, ícone).
+    RewriteCond %{REQUEST_URI} ^/assets/
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule ^ - [L]
+
+    # Todo o resto passa pelo index.php, inclusive tentativas de abrir arquivos do sistema.
+    RewriteCond %{REQUEST_URI} !^/index\.php$
+    RewriteRule ^ index.php [L,QSA]
+</IfModule>
+
+# Segunda barreira: arquivos que nunca devem ser baixados.
+<FilesMatch "^\.|\.(sql|md|json|lock|log|ini|sh|dist)$|^(config\.local\.php|config\.example\.php|dev-router\.php)$">
+    Require all denied
+</FilesMatch>
+
+<IfModule mod_headers.c>
+    <FilesMatch "\.(css|js|woff2|svg)$">
+        Header set X-Content-Type-Options "nosniff"
+        Header set Cache-Control "public, max-age=604800"
+    </FilesMatch>
+</IfModule>

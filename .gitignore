@@ -1,23 +1,14 @@
-# dependências
-/node_modules
-
-# next.js
-/.next/
-/out/
-/build
-next-env.d.ts
-*.tsbuildinfo
-
-# segredos (os modelos .env.example entram no git)
+# Configurações com senhas: NUNCA vão para o Git
+config.local.php
+controladoria-config*.php
 .env
 .env.*
-!.env.example
 
-# pacotes gerados para enviar à Hospedagem
+# Ferramentas de desenvolvimento
+/node_modules/
 /deploy/
+*.tsbuildinfo
 
-# logs e sistema
-npm-debug.log*
+# Sistema
 .DS_Store
 Thumbs.db
-.vercel
