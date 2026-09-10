@@ -14,6 +14,7 @@ $titles = [
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <?= csp_meta_tag() ?>
     <meta name="robots" content="noindex, nofollow">
     <title><?= e($heading) ?> · Controladoria</title>
     <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">

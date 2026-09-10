@@ -17,6 +17,18 @@ function is_https(): bool
     return PHP_SAPI !== 'cli-server' && str_starts_with((string) config('app_url', ''), 'https://');
 }
 
+function content_security_policy(): string
+{
+    return "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+        . "font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'";
+}
+
+/** Cópia da CSP dentro da página: o CDN da Hostinger substitui o cabeçalho por uma política genérica. */
+function csp_meta_tag(): string
+{
+    return '<meta http-equiv="Content-Security-Policy" content="' . e(content_security_policy()) . '">';
+}
+
 function send_security_headers(): void
 {
     header_remove('X-Powered-By');
@@ -25,8 +37,7 @@ function send_security_headers(): void
     header('Referrer-Policy: strict-origin-when-cross-origin');
     header('Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()');
     header('Cross-Origin-Opener-Policy: same-origin');
-    $csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
-        . "font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+    $csp = content_security_policy() . "; frame-ancestors 'none'";
     if (is_https()) {
         $csp .= '; upgrade-insecure-requests';
         header('Strict-Transport-Security: max-age=63072000; includeSubDomains');

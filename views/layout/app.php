@@ -32,6 +32,7 @@ $initials = mb_strtoupper(implode('', array_map(static fn ($part) => mb_substr($
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <?= csp_meta_tag() ?>
     <meta name="robots" content="noindex, nofollow">
     <meta name="csrf-token" content="<?= e(csrf_token()) ?>">
     <title><?= e($title) ?> · Controladoria</title>
