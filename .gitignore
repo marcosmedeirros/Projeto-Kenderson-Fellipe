@@ -1,8 +1,23 @@
-# Segredos
+# dependências
+/node_modules
+
+# next.js
+/.next/
+/out/
+/build
+next-env.d.ts
+*.tsbuildinfo
+
+# segredos (os modelos .env.example entram no git)
 .env
 .env.*
 !.env.example
 
-# Sistema
+# pacotes gerados para enviar à Hospedagem
+/deploy/
+
+# logs e sistema
+npm-debug.log*
 .DS_Store
 Thumbs.db
+.vercel

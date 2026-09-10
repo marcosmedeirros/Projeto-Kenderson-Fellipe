@@ -1,9 +1,9 @@
-# Produção na VM da Oracle.
+# Opção para VPS (Oracle ou Hostinger VPS). Na hospedagem Node.js da Hostinger não é usado.
 #   1. cp .env.example .env  e preencha tudo
 #   2. docker compose up -d --build
 #   3. Evolution junto (opcional): docker compose --profile evolution up -d --build
 #
-# Só o Caddy expõe portas (80/443). Painel, Postgres e Evolution ficam na rede interna.
+# Só o Caddy expõe portas (80/443). Painel, banco e Evolution ficam na rede interna.
 
 name: controladoria
 
@@ -16,7 +16,6 @@ services:
       - "443:443"
     environment:
       PAINEL_DOMINIO: ${PAINEL_DOMINIO}
-      EVOLUTION_DOMINIO: ${EVOLUTION_DOMINIO:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -25,34 +24,39 @@ services:
       - painel
 
   painel:
-    build: ../painel
+    build: ..
     restart: unless-stopped
     env_file: .env
     environment:
-      DATABASE_URL: postgres://controladoria:${POSTGRES_PASSWORD}@postgres:5432/controladoria
+      APP_URL: https://${PAINEL_DOMINIO}
+      DB_HOST: mariadb
+      DB_PORT: "3306"
+      DB_USER: controladoria
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: controladoria
     depends_on:
-      postgres:
+      mariadb:
         condition: service_healthy
 
-  postgres:
-    image: postgres:17-alpine
+  mariadb:
+    image: mariadb:11
     restart: unless-stopped
     environment:
-      POSTGRES_USER: controladoria
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: controladoria
+      MARIADB_DATABASE: controladoria
+      MARIADB_USER: controladoria
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+      - mariadb_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U controladoria"]
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 10s
       timeout: 5s
       retries: 10
 
   # ---- Opcional: Evolution API (WhatsApp) na mesma VM ----
-  # Se o Evolution já roda em outro lugar (ex.: o do bot da FBA), não use este perfil:
-  # basta cadastrar a URL dele em Integrações no painel.
+  # Se o Evolution já roda em outro lugar, não use este perfil: cadastre a URL dele em Integrações.
   evolution:
     profiles: ["evolution"]
     # Fixe uma versão testada em vez de "latest" antes de ir para produção.
@@ -63,17 +67,26 @@ services:
       AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
       DATABASE_ENABLED: "true"
       DATABASE_PROVIDER: postgresql
-      DATABASE_CONNECTION_URI: postgres://controladoria:${POSTGRES_PASSWORD}@postgres:5432/evolution
+      DATABASE_CONNECTION_URI: postgres://evolution:${EVOLUTION_DB_PASSWORD}@evolution-postgres:5432/evolution
       CACHE_REDIS_ENABLED: "true"
       CACHE_REDIS_URI: redis://redis:6379/6
       CACHE_LOCAL_ENABLED: "false"
     volumes:
       - evolution_instances:/evolution/instances
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_started
+      - evolution-postgres
+      - redis
+
+  evolution-postgres:
+    profiles: ["evolution"]
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: ${EVOLUTION_DB_PASSWORD}
+      POSTGRES_DB: evolution
+    volumes:
+      - evolution_postgres_data:/var/lib/postgresql/data
 
   redis:
     profiles: ["evolution"]
@@ -86,6 +99,7 @@ services:
 volumes:
   caddy_data:
   caddy_config:
-  postgres_data:
+  mariadb_data:
   evolution_instances:
+  evolution_postgres_data:
   redis_data:
