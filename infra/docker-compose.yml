@@ -1,0 +1,91 @@
+# Produção na VM da Oracle.
+#   1. cp .env.example .env  e preencha tudo
+#   2. docker compose up -d --build
+#   3. Evolution junto (opcional): docker compose --profile evolution up -d --build
+#
+# Só o Caddy expõe portas (80/443). Painel, Postgres e Evolution ficam na rede interna.
+
+name: controladoria
+
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PAINEL_DOMINIO: ${PAINEL_DOMINIO}
+      EVOLUTION_DOMINIO: ${EVOLUTION_DOMINIO:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - painel
+
+  painel:
+    build: ../painel
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://controladoria:${POSTGRES_PASSWORD}@postgres:5432/controladoria
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: controladoria
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: controladoria
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U controladoria"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ---- Opcional: Evolution API (WhatsApp) na mesma VM ----
+  # Se o Evolution já roda em outro lugar (ex.: o do bot da FBA), não use este perfil:
+  # basta cadastrar a URL dele em Integrações no painel.
+  evolution:
+    profiles: ["evolution"]
+    # Fixe uma versão testada em vez de "latest" antes de ir para produção.
+    image: evoapicloud/evolution-api:latest
+    restart: unless-stopped
+    environment:
+      SERVER_URL: https://${EVOLUTION_DOMINIO}
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgres://controladoria:${POSTGRES_PASSWORD}@postgres:5432/evolution
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: redis://redis:6379/6
+      CACHE_LOCAL_ENABLED: "false"
+    volumes:
+      - evolution_instances:/evolution/instances
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  redis:
+    profiles: ["evolution"]
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+
+volumes:
+  caddy_data:
+  caddy_config:
+  postgres_data:
+  evolution_instances:
+  redis_data:
